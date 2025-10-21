@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket       = "fellytfstate-backendbucket"
+    bucket       = "terraform-github-oidc-drift-demo"
     key          = "oidc-setup/terraform.tfstate"
     region       = "eu-west-2"
     use_lockfile = true
