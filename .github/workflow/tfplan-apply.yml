@@ -1,0 +1,111 @@
+name: "Terraform Drift Detection and OIDC Demo"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
+  RECIPIENT_EMAIL: ${{ vars.RECIPIENT_EMAIL }}
+
+jobs:
+  terraform:
+    name: "Deploy EKS Infrastructure"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.2"
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          terraform plan -no-color -input=false -out planfile | tee plan.log
+          terraform show -no-color planfile > tfplanfile.txt
+
+      - name: Upload Plan log
+        if: github.event.inputs.action != 'destroy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-log
+          path: plan.log
+
+      - name: Send Plan Email Notification
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          python3 scripts/send_plan_email.py
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          SENDER_EMAIL: ${{ env.SENDER_EMAIL }}
+          RECIPIENT_EMAIL: ${{ env.RECIPIENT_EMAIL }}
+
+      - name: Log Plan to CloudWatch
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          python3 scripts/log_to_cloudwatch.py plan.log /github/terraform/plan
+
+      - name: Terraform apply
+        if: github.event.inputs.action != 'destroy'
+        run: terraform apply -input=false planfile
+
+      - name: Capture Terraform outputs
+        if: github.event.inputs.action != 'destroy' && success()
+        run: terraform output -json > output.json
+
+      - name: Upload Terraform outputs
+        if: github.event.inputs.action != 'destroy' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-outputs
+          path: output.json
+
+      - name: Send Apply Success Email
+        if: github.event.inputs.action != 'destroy' && success()
+        run: |
+          python3 scripts/send_outputs_email.py
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+          SENDER_EMAIL: ${{ env.SENDER_EMAIL }}
+          RECIPIENT_EMAIL: ${{ env.RECIPIENT_EMAIL }}
+
+      - name: Log Apply to CloudWatch
+        if: github.event.inputs.action != 'destroy' && success()
+        run: |
+          python3 scripts/log_to_cloudwatch.py output.json /github/terraform/apply
+      
+      - name: Terraform destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -input=false
