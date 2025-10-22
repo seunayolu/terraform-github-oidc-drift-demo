@@ -1,4 +1,4 @@
-name: "Terraform Drift Detection and OIDC Demo"
+name: "Terraform Drift Detection"
 
 on:
   workflow_dispatch:
@@ -12,15 +12,12 @@ on:
           - apply
           - destroy
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
-  RECIPIENT_EMAIL: ${{ vars.RECIPIENT_EMAIL }}
-
 jobs:
-  terraform:
-    name: "Deploy EKS Infrastructure"
+  plan:
+    name: "Terraform Plan"
     runs-on: ubuntu-latest
+    environment: terraform-plan
+
     permissions:
       id-token: write
       contents: read
@@ -28,6 +25,7 @@ jobs:
     defaults:
       run:
         shell: bash
+        working-directory: ./s3
 
     steps:
       - name: Checkout source code
@@ -37,7 +35,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ secrets.ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -65,17 +63,62 @@ jobs:
 
       - name: Send Plan Email Notification
         if: github.event.inputs.action != 'destroy'
-        run: |
-          python3 scripts/send_plan_email.py
+        run: python3 scripts/send_plan_email.py
         env:
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
-          SENDER_EMAIL: ${{ env.SENDER_EMAIL }}
-          RECIPIENT_EMAIL: ${{ env.RECIPIENT_EMAIL }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
+          RECIPIENT_EMAIL: ${{ vars.RECIPIENT_EMAIL }}
 
       - name: Log Plan to CloudWatch
         if: github.event.inputs.action != 'destroy'
-        run: |
-          python3 scripts/log_to_cloudwatch.py plan.log /github/terraform/plan
+        run: python3 scripts/log_to_cloudwatch.py plan.log /github/terraform/plan
+
+      - name: Upload planfile for Apply step
+        if: github.event.inputs.action != 'destroy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-planfile
+          path: planfile
+
+  apply_or_destroy:
+    name: "Terraform Apply or Destroy"
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: terraform-deploy 
+
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./s3
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.12.2"
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Download planfile
+        if: github.event.inputs.action != 'destroy'
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-planfile
+          path: ./s3
 
       - name: Terraform apply
         if: github.event.inputs.action != 'destroy'
@@ -94,18 +137,16 @@ jobs:
 
       - name: Send Apply Success Email
         if: github.event.inputs.action != 'destroy' && success()
-        run: |
-          python3 scripts/send_outputs_email.py
+        run: python3 scripts/send_outputs_email.py
         env:
-          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
-          SENDER_EMAIL: ${{ env.SENDER_EMAIL }}
-          RECIPIENT_EMAIL: ${{ env.RECIPIENT_EMAIL }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          SENDER_EMAIL: ${{ vars.SENDER_EMAIL }}
+          RECIPIENT_EMAIL: ${{ vars.RECIPIENT_EMAIL }}
 
       - name: Log Apply to CloudWatch
         if: github.event.inputs.action != 'destroy' && success()
-        run: |
-          python3 scripts/log_to_cloudwatch.py output.json /github/terraform/apply
-      
+        run: python3 scripts/log_to_cloudwatch.py output.json /github/terraform/apply
+
       - name: Terraform destroy
         if: github.event.inputs.action == 'destroy'
         run: terraform destroy -auto-approve -input=false
