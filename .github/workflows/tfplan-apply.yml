@@ -59,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-log
-          path: plan.log
+          path: ./s3/plan.log
 
       - name: Send Plan Email Notification
         if: github.event.inputs.action != 'destroy'
@@ -78,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terraform-planfile
-          path: planfile
+          path: ./s3/planfile
 
   apply_or_destroy:
     name: "Terraform Apply or Destroy"
