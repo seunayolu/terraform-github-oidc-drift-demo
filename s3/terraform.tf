@@ -7,7 +7,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "tfstatebucket-663264486938"
+    bucket       = "terraform-github-oidc-drift-demo"
     region       = "eu-west-2"
     key          = "terraform-drift/terraform.tfstate"
     encrypt      = true
