@@ -10,14 +10,14 @@ def send_plan_email():
     aws_region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
     
     if not sender_email or not recipient_email:
-        print("❌ Error: SENDER_EMAIL and RECIPIENT_EMAIL must be set")
+        print("Error: SENDER_EMAIL and RECIPIENT_EMAIL must be set")
         sys.exit(1)
 
     try:
         with open('tfplanfile.txt', 'r') as f:
             plan_content = f.read()
     except FileNotFoundError:
-        print("❌ Error: tfplanfile.txt not found")
+        print("Error: tfplanfile.txt not found")
         sys.exit(1)
 
     msg = MIMEMultipart()
@@ -52,9 +52,9 @@ Workflow URL: https://github.com/{os.getenv('GITHUB_REPOSITORY')}/actions/runs/{
             Destinations=[recipient_email],
             RawMessage={'Data': msg.as_string()}
         )
-        print(f"✅ Plan email sent. Message ID: {response['MessageId']}")
+        print(f"Plan email sent. Message ID: {response['MessageId']}")
     except Exception as e:
-        print(f"❌ Error sending email: {str(e)}")
+        print(f"Error sending email: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

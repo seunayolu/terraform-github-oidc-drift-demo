@@ -26,7 +26,7 @@ def log_to_cloudwatch(logfile, log_group):
             "message": content[:10000],
         }],
     )
-    print(f"✅ Logged {logfile} to CloudWatch group: {log_group}")
+    print(f"Logged {logfile} to CloudWatch group: {log_group}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
